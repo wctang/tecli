@@ -6,7 +6,10 @@
 <style type="text/css">
 :root { --head-height: 40px;}
 
-body {width:1200px;}
+body {margin:0; width:1200px;}
+
+#main {padding: 1em; height:100vh;}
+#side {padding-right:1em;}
 
 div.p {background-color:white; margin: 0 0 5px 0; padding: 5px;}
 div.head {height:var(--head-height); /*border-top-style: double;*/ }
@@ -264,21 +267,21 @@ app.component('my-card-list', {
 
 app.component('my-app', {
   template: `
-  <el-container style="height:100%;">
-    <el-aside width="400px">
+  <el-container id="main">
+    <el-aside id="side" width="400px">
       <input type="file" @change="OnFileSelected" />
       <el-progress :percentage="progress"></el-progress>
 
-      <el-date-picker size="small" v-model="datevalue" type="daterange" start-placeholder="开始日期" end-placeholder="结束日期" @change="refresh_content"></el-date-picker>
+      <el-date-picker size="small" v-model="datevalue" type="daterange" @change="refresh_content"></el-date-picker>
 
       <el-select size="small" v-model="userList" @change="refresh_content" multiple filterable placeholder="Sender">
         <el-option v-for="usr in usrs.values()" :label="usr.displayname" :value="usr.id"></el-option>
       </el-select>
 
       <el-radio-group v-model="searchmode">
-        <el-radio :label="1">一般</el-radio>
-        <el-radio :label="2">正規表達式</el-radio>
-        <el-radio :label="3">模糊</el-radio>
+        <el-radio :label="1">Normal</el-radio>
+        <el-radio :label="2">RegExp</el-radio>
+        <el-radio :label="3">Fuzzy</el-radio>
       </el-radio-group>
       <el-input v-model="search" @change="refresh_content"></el-input>
       <el-pagination
