@@ -1,0 +1,396 @@
+<meta charset="utf8" />
+<html>
+<head>
+<title>Line navigator demo</title>
+<link rel="stylesheet" href="https://unpkg.com/element-plus/lib/theme-chalk/index.css">
+<style type="text/css">
+:root { --head-height: 40px;}
+
+body {width:1200px;}
+
+div.p {background-color:white; margin: 0 0 5px 0; padding: 5px;}
+div.head {height:var(--head-height); /*border-top-style: double;*/ }
+img.u {display:inline; vertical-align: middle; width:40px; height:40px;}
+span.u {line-height:var(--head-height); vertical-align: middle; margin:0px 3px; font-weight:bold;}
+a.t {line-height:var(--head-height); vertical-align: middle; margin:0px 3px; font-size:small;}
+
+div.media {background-color:lightyellow;}
+div.ctnt {display: block; white-space: pre-wrap; margin: 0.5em 0px;}
+
+div.hasreply {border-left: 3px solid dodgerblue;}
+div.noreply {border-left: 3px solid white;}
+
+#c-messages {border:2px solid #888;}
+#messages {background-color:lightblue;}
+div[data-reply="0"] {margin-left: 0px;}
+div[data-reply="1"] {margin-left:20px;}
+div[data-reply="2"] {margin-left:40px;}
+div[data-reply="3"] {margin-left:60px;}
+div[data-reply="4"] {margin-left:80px;}
+div[data-reply="5"] {margin-left:100px;}
+div[data-reply="6"] {margin-left:120px;}
+div[data-reply="7"] {margin-left:140px;}
+div[data-reply="8"] {margin-left:160px;}
+div[data-reply="9"] {margin-left:180px;}
+div[data-reply="10"] {margin-left:200px;}
+div[data-reply="11"] {margin-left:220px;}
+div[data-reply="12"] {margin-left:240px;}
+div[data-reply="13"] {margin-left:260px;}
+div[data-reply="14"] {margin-left:280px;}
+div[data-reply="15"] {margin-left:300px;}
+div[data-reply="16"] {margin-left:320px;}
+div[data-reply="17"] {margin-left:340px;}
+div[data-reply="18"] {margin-left:360px;}
+div[data-reply="19"] {margin-left:380px;}
+div[data-reply="20"] {margin-left:400px;}
+</style>
+<!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.2.1/dist/sql-wasm.js" integrity="sha512-P3Yz5L06ijmktyFbUfhZmGriolebpOxxiNFgF+JtFj/wThktfoN1yjpKRBQfsPhA4Dl82ktp/XrOSSmGL1Bg3A==" crossorigin="anonymous"></script> -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js" integrity="sha512-qTXRIMyZIFb8iQcfjXWCO8+M5Tbc38Qi5WzdPOYZHIlZpzBHG3L3by84BBBOiRGiEb7KKtAOAs5qYdUiZiQNNQ==" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/vue@next"></script>
+<script src="https://unpkg.com/element-plus/lib/index.full.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.js"></script>
+</head>
+<body>
+<div id="app">
+  <my-app></my-app>
+</div>
+<script id="worker1" type="text/js-worker">
+let SQL = null;
+importScripts("https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.2.1/dist/sql-wasm.js");
+initSqlJs({locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.2.1/dist/${file}`}).then(function(s){
+  SQL = s;
+});
+
+self.addEventListener('message', function(e) {
+  const reader = new FileReader();
+  reader.addEventListener('load', (e) => {
+    self.postMessage({act:'progress', p:5,});
+
+    let db = new SQL.Database(new Uint8Array(e.target.result));
+    let res = db.exec("select id,username,title,photo from CHL");
+    let r = res[0].values[0];
+    let cid = r[0];
+    let ctitle = r[2];
+    let clink = `https://t.me/${ (r[1] == null) ? 'c/'+r[0] : r[1] }/`;
+    self.postMessage({act:'progress', p:10,});
+
+    let usrs = new Map();
+    res = db.exec("select USR.id,username,displayname,photo,count(MSG.id) as cnt from MSG,USR where MSG.sender_id=USR.id group by sender_id order by cnt DESC");
+    res[0].values.forEach(r => {
+      let u = {
+        id: r[0],
+        username: r[1],
+        displayname: r[2],
+        photo: r[3]
+      };
+      usrs.set(u.id, u);
+    });
+    self.postMessage({act:'progress', p:30,});
+
+    res = db.exec("select min(date),max(date) from MSG");
+    const d_min = res[0].values[0][0];
+    const d_max = res[0].values[0][1];
+    self.postMessage({act:'progress', p:50,});
+
+    let ms = new Map();
+    let posts = [];
+    res = db.exec("select id,date,sender_id,reply_to,text,media,data from MSG order by id");
+    self.postMessage({act:'progress', p:70,});
+
+    res[0].values.forEach(r => {
+      let sid = (r[2] < -1000000000000) ? (r[2] * -1 -1000000000000) : r[2];
+      if (!usrs.has(sid)) {
+        return;
+      }
+
+      let par = (r[3] == 0 || !ms.has(r[3])) ? null : ms.get(r[3]);
+      let vv = {
+        id: r[0],
+        date: new Date(r[1] * 1000),
+        sender: usrs.get(sid),
+        reply: par,
+        text: r[4],
+        media: r[5],
+        data: r[6],
+        child: []
+      };
+      ms.set(vv.id, vv);
+      if (par) {
+        par.child.push(vv);
+      }
+      posts.push(vv);
+    });
+
+    self.postMessage({act:'progress', p:90,});
+    self.postMessage({
+      act:'end',
+      id:cid,
+      title:ctitle,
+      link:clink,
+      user:usrs,
+      posts:posts,
+      range:[new Date(d_min * 1000), new Date(d_max * 1000)],
+    });
+  });
+  reader.readAsArrayBuffer(e.data);
+}, false);
+</script>
+<script>
+(function () {
+const app = Vue.createApp({});
+app.use(ElementPlus);
+app.component('my-card', {
+  props: {
+    post: Object,
+    reply: Number,
+    clink: String,
+    showheader: Boolean,
+  },
+  created () {
+    this.RE_URL = /(https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|www\.[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9]+\.[^\s]{2,}|www\.[a-zA-Z0-9]+\.[^\s]{2,})/gi;
+    this.DEFICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAARdEVYdFNvZnR3YXJlAFNuaXBhc3RlXRfO3QAAA9FJREFUWEftmEsodVEUx9dFUfJOUZ4hhZQkIgyQZIQYkMfgTmRgYkJJCgMzIzIxMJK8BkoGEgmR5JWSgcdMhCKvOt/e1/+eazuvfe7nfhl8v1rddfZae63/PXefc/a5DoVBvxg/fP5afuwMPj8/08PDAwUFBVFERARGfwAu0FtWV1eV0tJS/gU1FhcXp/T39yPTe7wSeH19rYSHh+sK07PBwUHMtI9tgVNTU7oiuDkcDt1xbjk5OahgD1sCZ2ZmNI1bW1uVs7MzZHgYHx9XgoODhdzExERE5ZEWeHd3JzQLCAhQbm5uEDXG6XQK89rb2xGRQ1pgamqq0MgOPT09wtyrqytErJHqxH/Crw3Oz88RkScpKUmdX11djVFrpAS2tbWpxSsqKjBqj+PjY7UGN1mkMqOjo9XCy8vLGLVPYGCgWmd3dxej5kg96tjFAI+orKwMnn1KSkrgEe3t7cEzx/az2M/P+8d3TEwMPKL7+3t45vzTzcLt7S08otDQUHjmSAkMCQmBR7S9vQ3PPltbW/CIMjIy4FmAtWhKQ0ODuri57w383ueuIdnWhVTmxsaGUPzl5QUReYqLi9X5eXl5GLVG+quEhYWpDfhtxw4TExPqXG77+/uIWCMt8ODgQGiSnp6OiDmjo6PCPHabQkQO+cXAGBoaEppxGxkZUT4+PpDhYWdnR8nMzBRy+QbDLrYEcrq6uoSmbouMjFSys7OV5ORk3TjfenmDbYGcxsZGXRFm5i22Zq6trSn+/v66AmSspaUFleSRfqurqamh+fl5HHnIz8+n8vJyYuvN9Tb3+vpKFxcXtLm5SbOzs/T29oZMD5eXlxQfH48jC1wyLUhLS9OcDbfNzc0hS4vZ2ZbdzVgKTEhIEArzJ0lHR4cwtri4iGwP7AwJOXyb9vWY29HREbKNMRXY3NwsFOzr60PEtSwE4y9EfI3x+9z32OTkpGvO4+OjJmaFYcb6+rpQaGBgAJFP2M5EiBtZd3c3Znzy/v4uxHNzcxHRx1Agv6m6ixQUFGBUC7tAhIZu4+tvaWkJWSJssyrk8me9EboC2dUnFJBhenpaGR4eVsbGxpSTkxOMGlNXV6fW53+TGKHbPSsrS53c2dmJ0Z/l6elJ7cHN6B1bI/D7GuHHvqKoqEjt09vbi1ERzY56ZWUFHlFUVBSxtYijn8fpdMIjWlhYgCeiEcgWLDwi9oINzzdUVlbCIzo8PIQnohF4enoKjyglJQWeb4iNjYXHfmO23PTQCCwsLKT6+nrXs5f7vqaqqoqampqotraW2L4Sox7+/4n+t/xygUR/AMiy2SYmmvAmAAAAAElFTkSuQmCC';
+  },
+  template: `
+    <div :id="'msg-' + post.id" :data-reply="reply" :class="'p item ' + post_reply" @click="onMessageClick">
+      <div v-if="showheader" class="head">
+        <img class="u" :src="sender_photo"/>
+        <span class="u">{{post.sender.displayname}}</span>
+        <a class="t" :href="post_link" target="_blank" v-text="post_date"></a>
+      </div>
+      <div class="media" v-if="post_media.length > 0" v-html="post_media"></div>
+      <div class="ctnt" v-html="post_text"></div>
+    </div>
+    <div v-if="post.child.length > 0" :id="'child-' + post.id" style="display:block;">
+      <my-card v-for="(p, i) in post.child" :key="i" :post="p" :showheader=true :reply="reply+1" :clink="clink">
+      </my-card>
+    </div>
+  `,
+  computed: {
+    sender_photo() {
+      return (this.post.sender.photo == null) ? this.DEFICON : this.data_uri(this.post.sender.photo);
+    },
+    post_link() {
+      return this.clink + this.post.id;
+    },
+    post_reply() {
+      return (this.post.child.length > 0)? 'hasreply': 'noreply';
+    },
+    post_date() {
+      return moment(this.post.date).format('YYYY-MM-DD HH:mm:ss');
+    },
+    post_media() {
+      let res = '';
+      let item = this.post.media.split('\t');
+      if (item[0] == '') {
+        // pass
+      } else if (item[0] == '1') {
+        res = `1`;
+      } else if (item[0] == 'url' && item.length > 1) {
+        res = `<p><a href="${item[1]}" target="_blank">${item[2]}</a><br>${item[3]}</p>`;
+      } else if (item[0] == 'pic') {
+        res = (this.post.data == null) ? '' : `<img src="${this.data_uri(this.post.data)}"/>`;
+      } else if (item[0] == 'sticker' && item.length > 1) {
+        res = `${item[1]}`;
+      } else {
+        res = `${this.post.media}`;
+      }
+      return res;
+    },
+    post_text() {
+      let res = [];
+      let last = 0;
+      let ary;
+      while ((ary = this.RE_URL.exec(this.post.text)) !== null) {
+        res.push(this.post.text.slice(last, ary.index));
+        res.push(`<a href="${ary[0]}" target="_blank">${ary[0]}</a>`);
+        last = this.RE_URL.lastIndex;
+      }
+      res.push(this.post.text.slice(last));
+      return res.join('');
+    },
+  },
+  methods: {
+    data_uri(d) {
+      return `data:image/png;base64,${btoa(String.fromCharCode.apply(null, new Uint8Array(d)))}`;
+      //// Don't use boject url, it is hard to release in one-page application
+      //// https://ccloli.com/201509/bullshit-about-blob-and-object-url/
+      // return URL.createObjectURL(new Blob([d]));
+    },
+    onMessageClick(e) {
+      for (let el of e.path) {
+        if (!el.attributes)
+          continue;
+        let id = el.attributes['id'];
+        if (!id)
+          continue;
+        id = id.value;
+        if (!id.startsWith('msg-'))
+          continue;
+        id = id.substring(4);
+        let chd = document.getElementById(`child-${id}`);
+        if (chd) {
+          chd.style.display = (chd.style.display == 'block') ? 'none' : 'block';
+        }
+      }
+    },
+  },
+});
+
+app.component('my-card-list', {
+  props: {
+    cards: Object,
+    clink: String,
+  },
+  // render() {
+  //   const {h, resolveComponent} = Vue;
+  //   const elmain = resolveComponent('el-main');
+  //   const mycard = resolveComponent('my-card');
+  //   let prev = null;
+  //   return h(elmain, {id:'messages'}, this.cards.map(th => {
+  //     let showheader = true;
+  //     // let showheader = (prev != null && prev.sender == th.sender) ? false : true;
+  //     // prev = th;
+  //     return h(mycard, {post:th, showheader:showheader, reply:0, clink:this.clink});
+  //   }));
+  // },
+
+  template: `
+    <el-main id="messages">
+      <my-card v-for="th in cards" :showheader=true :post="th" :reply=0 :clink="clink">
+      </my-card>
+    </el-main>
+  `,
+});
+
+app.component('my-app', {
+  template: `
+  <el-container style="height:100%;">
+    <el-aside width="400px">
+      <input type="file" @change="OnFileSelected" />
+      <el-progress :percentage="progress"></el-progress>
+
+      <el-date-picker size="small" v-model="datevalue" type="daterange" start-placeholder="开始日期" end-placeholder="结束日期" @change="refresh_content"></el-date-picker>
+
+      <el-select size="small" v-model="userList" @change="refresh_content" multiple filterable placeholder="Sender">
+        <el-option v-for="usr in usrs.values()" :label="usr.displayname" :value="usr.id"></el-option>
+      </el-select>
+
+      <el-radio-group v-model="searchmode">
+        <el-radio :label="1">一般</el-radio>
+        <el-radio :label="2">正規表達式</el-radio>
+        <el-radio :label="3">模糊</el-radio>
+      </el-radio-group>
+      <el-input v-model="search" @change="refresh_content"></el-input>
+      <el-pagination
+        layout="prev, pager, next"
+        @current-change="changePage"
+        :current-page.sync="currentPage"
+        :page-size="pageSize"
+        :total="all_threads.length">
+      </el-pagination>
+      <h3>{{ ctitle }}</h3>
+    </el-aside>
+    <el-container id="c-messages">
+      <my-card-list :cards="displayedPosts" :clink="clink"></my-card-list>
+    </el-container>
+  </el-container>
+  `,
+  data() {
+    return {
+      worker: null,
+      progress: 0,
+      datevalue: [],
+      usrs: new Map(),
+      userList: [],
+      searchmode: 1,
+      search: '',
+      currentPage: 1,
+      pageSize: 100,
+      all_posts: [],
+      all_threads: [],
+      ctitle: '',
+      clink: '',
+    }
+  },
+  mounted() {
+    worker = new Worker(window.URL.createObjectURL(new Blob([document.querySelector('#worker1').textContent])));
+    worker.onmessage = ({data}) => {
+      switch (data.act) {
+      case 'progress':
+        this.progress = Math.floor(data.p);
+        break;
+      case 'end':
+        this.all_posts = data.posts;
+        this.ctitle = data.title;
+        this.clink = data.link;
+        this.usrs = data.user;
+        this.datevalue[0] = data.range[0];
+        this.datevalue[1] = data.range[1];
+        this.refresh_content();
+        this.progress=100;
+        break;
+      default:
+        console.log(data);
+        break;
+      }
+    };
+  },
+  computed: {
+    displayedPosts() {
+      return this.all_threads.slice((this.currentPage-1)*this.pageSize, (this.currentPage)*this.pageSize);
+    }
+  },
+  methods: {
+    OnFileSelected(e) {
+      let files = e.target.files;
+      if (files.length !== 1)
+        return;
+      worker.postMessage(files[0]);
+    },
+    refresh_content() {
+      const begt = this.datevalue[0];
+      const endt = moment(this.datevalue[1]).add(1, 'd')
+
+      let posts = this.all_posts.filter(p => moment(p.date).isBetween(begt, endt) && (this.userList.length == 0 || this.userList.includes(p.sender.id)));
+
+      if (this.search.length > 0) {
+        if (this.searchmode == 1) {
+          const ss = this.search.toLowerCase();
+          posts = posts.filter(p => p.text.toLowerCase().includes(ss));
+        } else if (this.searchmode == 2) {
+          const reg = new RegExp(this.search, 'im');
+          posts = posts.filter(p => reg.test(p.text));
+        } else if (this.searchmode == 3) {
+          const fuse = new Fuse(posts, {includeScore:true, threshold:1.0, minMatchCharLength:2, sortFn:(a,b)=>{return a.date-b.date;}, keys: ['text']});
+          posts = fuse.search(this.search).map(e => e.item);
+        }
+      }
+
+      let threads = this.all_threads;
+      threads.length = 0;
+      let thread_set = new Set();
+      posts.forEach(p => {
+        while (p.reply != null)
+          p = p.reply;
+
+        if (!thread_set.has(p)) {
+          threads.push(p);
+          thread_set.add(p);
+        }
+      })
+      thread_set = null;
+
+      document.getElementById("messages").scroll(0, 0);
+    },
+    changePage(p) {
+      this.currentPage = p;
+
+      document.getElementById("messages").scroll(0, 0);
+    },
+  },
+});
+app.mount("#app");
+}())
+</script>
+</body>
+</html>
